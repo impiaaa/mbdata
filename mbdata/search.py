@@ -332,9 +332,9 @@ def generate_trigger_func(kind, table, op, select):
     return "\n".join(ddl).format(kind=kind, table=table, op=op, select=select).format(var=var)
 
 
-def generate_trigger(kind, schema, table, op, when=None):
+def generate_trigger(kind, schema, table_path, table, op, when=None):
     ddl = []
-    ddl.append("CREATE TRIGGER mbdata_tr_search_{kind}_{op}_{table}")
+    ddl.append("CREATE TRIGGER mbdata_tr_search_{kind}_{op}_{table_path}")
     if op == 'ins':
         ddl.append("    AFTER INSERT ON {schema}.{table} FOR EACH ROW")
     elif op == 'upd':
@@ -346,9 +346,9 @@ def generate_trigger(kind, schema, table, op, when=None):
         cond = ' OR\n          '.join(when)
     else:
         cond = None
-    ddl.append("    EXECUTE PROCEDURE mbdata.tr_search_{kind}_{op}_{table}();")
+    ddl.append("    EXECUTE PROCEDURE mbdata.tr_search_{kind}_{op}_{table_path}();")
 
-    return "\n".join(ddl).format(schema=schema, kind=kind, table=table, op=op, cond=cond)
+    return "\n".join(ddl).format(schema=schema, kind=kind, table=table, table_path=table_path, op=op, cond=cond)
 
 
 def export_update_triggers(db):
@@ -401,16 +401,17 @@ def export_update_triggers(db):
         for path in collections:
             table = path[-1].mapped_table
             yield generate_trigger_func(entity.name, table.name, 'ins', selects[path])
-            yield generate_trigger(entity.name, table.schema, table.name, 'ins')
+            yield generate_trigger(entity.name, table.schema, table.name, table.name, 'ins')
             yield generate_trigger_func(entity.name, table.name, 'del', selects[path])
-            yield generate_trigger(entity.name, table.schema, table.name, 'del')
+            yield generate_trigger(entity.name, table.schema, table.name, table.name, 'del')
 
         # TODO use six.iteritems, is it a performance impact to simply use columns.items() instead?
         for path, cols in six.iteritems(columns):
             cols_conds = ['NEW.{col} IS DISTINCT FROM OLD.{col}'.format(col=col.name) for col in cols]
             table = path[-1].mapped_table
-            yield generate_trigger_func(entity.name, table.name, 'upd', selects[path])
-            yield generate_trigger(entity.name, table.schema, table.name, 'upd', cols_conds)
+            table_path = '_'.join([part.mapped_table.name for part in path[1:]])
+            yield generate_trigger_func(entity.name, table_path, 'upd', selects[path])
+            yield generate_trigger(entity.name, table.schema, table_path, table.name, 'upd', cols_conds)
 
 
 def export_triggers(db):
@@ -454,7 +455,7 @@ def save_update_xml(xml, stream):
     num_docs = 0
     xml.write('<update>\n')
     for elem in stream:
-        xml.write(ET.tostring(elem))
+        xml.write(six.ensure_str(ET.tostring(elem)))
         xml.write('\n')
         num_docs += 1
     xml.write('</update>\n')
